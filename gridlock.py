@@ -345,14 +345,7 @@ else:
 # parse gravity specification
 #
 if args.gravity is not None:
-    if args.gravity.lower() == 'current':
-        args.gravity = Wnck.WindowGravity.CURRENT
-    elif args.gravity.lower() == 'static':
-        args.gravity = Wnck.WindowGravity.STATIC
-    elif args.gravity.lower() == 'northwest':
-        args.gravity = Wnck.WindowGravity.NORTHWEST
-    else:
-        raise ValueError(f'Illegal gravity value: "args.gravity"')
+    args.gravity = getattr(Wnck.WindowGravity, args.gravity.upper())
 else:
     args.gravity = Wnck.WindowGravity.CURRENT
 
