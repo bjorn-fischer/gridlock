@@ -44,17 +44,17 @@ version = '0.2.99'
 
 class Rect():
 
-    def __init__(self, x1=-1, y1=-1, x2=-1, y2=-1):
+    def __init__(self, x1=None, y1=None, x2=None, y2=None):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
         self.y2 = y2
 
     def __bool__(self):
-        return self.x1 >= 0 \
-            and self.y1 >= 0 \
-            and self.x2 >= 0 \
-            and self.y2 >= 0
+        return self.x1 is not None \
+            and self.y1 is not None \
+            and self.x2 is not None \
+            and self.y2 is not None
 
     def to_cairo(self, scale_x=1, scale_y=1):
         x1 = min(self.x1, self.x2)
@@ -72,10 +72,10 @@ class Rect():
 
 class GridLock(Gtk.Window):
 
-    def __init__(self, active_window, cols=16, rows=10):
+    def __init__(self, target, cols=16, rows=10):
         super().__init__(title='Gridlock')
 
-        self.active_window = active_window
+        self.target = target
         self.cols = cols
         self.rows = rows
         self.drag = False
@@ -127,6 +127,42 @@ class GridLock(Gtk.Window):
 
         self.add(overlay)
 
+    def set_target_geometry_from_cursor(self):
+        allocation = self.grid.get_allocation()
+        cell_width = allocation.width // self.cols
+        cell_height = allocation.height // self.rows
+
+        (x, y, width, height) = self.cursor_rect.to_cairo(cell_width, cell_height)
+        (grid_x, grid_y, grid_width, grid_height) = self.wnck_window.get_geometry()
+
+        # translate grid coordinates to global coordinates
+        geometry = (x + grid_x, y + grid_y, width, height)
+
+        # apply offset
+        geometry = tuple(sum(x) for x in zip(geometry, args.offset))
+
+        if args.debug:
+            print('Compute new target geometry')
+            print(f'  local target geometry = {(x, y, width, height)}')
+            print(f'  grid geometry = {(grid_x, grid_y, grid_width, grid_height)}')
+            print(f'  offset = {args.offset}')
+            print(f'  translated geometry = {geometry}')
+
+        self.set_raw_target_geometry(*geometry)
+
+    def set_raw_target_geometry(self, x, y, width, height):
+        self.target.set_geometry(
+            args.gravity,
+            Wnck.WindowMoveResizeMask.X
+            | Wnck.WindowMoveResizeMask.Y
+            | Wnck.WindowMoveResizeMask.WIDTH
+            | Wnck.WindowMoveResizeMask.HEIGHT,
+            x,
+            y,
+            width,
+            height,
+            )
+
     def on_draw_window(self, window, ctx):
         #
         # instead of waiting for the Gdk.Window and installing an
@@ -142,7 +178,7 @@ class GridLock(Gtk.Window):
                     print(f'Grid window 0x{xid} is on screen, setting window type')
                 self.wnck_window.set_window_type(Wnck.WindowType.UTILITY)
             elif args.debug:
-                print(f'Could not get window by xid 0x{xid}')
+                print(f'Could not get window by xid 0x{xid}, retrying...')
         #
         # make window transparent without affecting child widgets
         #
@@ -210,36 +246,7 @@ class GridLock(Gtk.Window):
     def on_mouse_release(self, widget, event):
         if event.button == 1:
             self.drag = False
-
-            allocation = self.grid.get_allocation()
-            cell_width = allocation.width // self.cols
-            cell_height = allocation.height // self.rows
-
-            (x, y, width, height) = self.cursor_rect.to_cairo(cell_width, cell_height)
-            (grid_x, grid_y, grid_width, grid_height) = self.wnck_window.get_geometry()
-
-            new_x = x + grid_x + args.offset[0]
-            new_y = y + grid_y + args.offset[1]
-
-            if args.debug:
-                print('Compute new geometry and call Wnck.window.set_geometry()')
-                print(f'  target geometry = {width}x{height}+{x}+{y}')
-                print(f'  grid geometry = {grid_width}x{grid_height}+{grid_x}+{grid_y}')
-                print(f'  offset = {args.offset}')
-                print(f'  translated geometry = {width}x{height}+{new_x}+{new_y}')
-
-            self.active_window.set_geometry(
-                args.gravity,
-                Wnck.WindowMoveResizeMask.X
-                | Wnck.WindowMoveResizeMask.Y
-                | Wnck.WindowMoveResizeMask.WIDTH
-                | Wnck.WindowMoveResizeMask.HEIGHT,
-                new_x,
-                new_y,
-                width,
-                height,
-                )
-
+            self.set_target_geometry_from_cursor()
             Gtk.main_quit()
             return True
 
@@ -280,6 +287,11 @@ arg_parser = argparse.ArgumentParser(
         'Caveat: This tool uses RGBA visuals. Compositor needed.',
     formatter_class = argparse.RawDescriptionHelpFormatter,
     )
+arg_parser.add_argument('window_id',
+    action='store', nargs='?',
+    help='X11 window id of the target window, defaulting to active window'
+        ' if not specified',
+    )
 arg_parser.add_argument('-d', '--debug',
     dest='debug', action='store_true',
     help='generate debug output, lots of',
@@ -299,7 +311,12 @@ arg_parser.add_argument('-f', '--fullscreen',
     )
 arg_parser.add_argument('-o', '--offset',
     dest='offset', action='store',
-    help='add offset to target geometry: "x_offset,y_offset", can be negative',
+    help='add offset to target geometry for WM decorated windows:'
+        ' "x_offset,y_offset[,width_offset,height_offset]", can be negative',
+    )
+arg_parser.add_argument('-O', '--offset-csd',
+    dest='offset_csd', action='store',
+    help='like "-o" but for windows with client side decorations',
     )
 arg_parser.add_argument('-g', '--grid',
     dest='grid', action='store',
@@ -322,8 +339,21 @@ arg_parser.add_argument('-t', '--grid-thickness',
     help='thickness of the lines of the grid lines in pixels'
     )
 
-
 args = arg_parser.parse_args()
+
+screen = Wnck.Screen.get_default()
+screen.force_update()
+
+if args.window_id is None:
+    target = screen.get_active_window()
+    if target is None:
+        raise RuntimeError('Could not determine active window')
+else:
+    target = Wnck.Window.get(int(args.window_id, 0))
+    if target is None:
+        raise RuntimeError(f'Could not get window for id {args.window_id}')
+
+is_undecorated = target.get_geometry() == target.get_client_window_geometry()
 
 #
 # parse grid specification
@@ -336,10 +366,16 @@ else:
 #
 # parse offset specification
 #
+if is_undecorated:
+    # keep this ugly hack until we have proper config handling
+    args.offset = args.offset_csd
+
 if args.offset is not None:
     args.offset = tuple(int(i) for i in args.offset.split(','))
+    # zero-pad to four elements
+    args.offset += (0,) * (4 - len(args.offset))
 else:
-    args.offset = (0, 0)
+    args.offset = (0, 0, 0, 0)
 
 #
 # parse gravity specification
@@ -372,24 +408,20 @@ if args.grid_thickness is not None:
 else:
     args.grid_thickness = 7
 
-screen = Wnck.Screen.get_default()
-screen.force_update()
-active_window = screen.get_active_window()
-if active_window is None:
-    raise RuntimeError('Could not determine active window')
-
 if args.debug:
-    print(f'Active window is 0x{active_window.get_xid():x}')
-    print(f'  name = "{active_window.get_name()}"')
-    print(f'  class group = "{active_window.get_class_group_name()}"')
-    print(f'  type = "{active_window.get_window_type()}"')
+    print(f'Target window is 0x{target.get_xid():x}')
+    print(f'  geometry = {tuple(target.get_geometry())}')
+    print(f'  name = "{target.get_name()}"')
+    print(f'  class group = "{target.get_class_group_name()}"')
+    print(f'  type = "{target.get_window_type()}"')
+    print(f'  is undecorated = {is_undecorated}')
 
-if active_window.get_window_type() != Wnck.WindowType.NORMAL:
+if target.get_window_type() != Wnck.WindowType.NORMAL:
     if args.debug:
         print('Window type is not Wnck.WindowType.NORMAL, terminating...')
     sys.exit(0)
 
-window = GridLock(active_window, *args.grid)
+window = GridLock(target, *args.grid)
 window.show_all()
 Gtk.main()
 
@@ -399,5 +431,5 @@ now = GdkX11.x11_get_server_time(
         GdkX11.x11_get_default_root_xwindow()
         )
     )
-active_window.activate(now)
+target.activate(now)
 
