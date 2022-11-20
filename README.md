@@ -20,7 +20,7 @@ TODO:
 - [X] Allow custom grid rows/columns
 - [X] Allow custom colors and opacity
 - [X] More compatibility with sidebars and reserved spaces
-- [ ] Live preview of resized window?
+- [X] Live preview of resized window
 - [ ] Daemon mode to get rid of `xbindkeys`?
 - [ ] More eye candy?
 - [ ] Fallback mode if no compositor?
