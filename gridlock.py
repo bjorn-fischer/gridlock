@@ -37,9 +37,26 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Wnck', '3.0')
 from gi.repository import Gtk, Gdk, GdkX11, Wnck
 import cairo
+from Xlib import X, Xatom, display
 
 progname = 'gridlock'
 version = '0.2.99'
+
+def get_gtk_frame_offset(xid):
+    #
+    # Gdk and Wnck hide away _GTK_FRAME_EXTENTS, Gdk.property_get is broken,
+    # so use native Xlib to get this:
+    #
+    x11_display = display.Display()
+    x11_window = x11_display.create_resource_object('window', target.get_xid())
+    atom_gtk_frame_extents = x11_display.intern_atom('_GTK_FRAME_EXTENTS')
+    prop = x11_window.get_full_property(atom_gtk_frame_extents, 0)
+    if prop is not None:
+        (left, right, top, bottom) = prop.value
+        if args.debug:
+            print(f'  _GTK_FRAME_EXTENTS detected: {(left, right, top, bottom)}')
+        return (-left, -top, left + right, top + bottom)
+    return (0, 0, 0, 0)
 
 
 class Rect():
@@ -138,8 +155,9 @@ class GridLock(Gtk.Window):
         # translate grid coordinates to global coordinates
         geometry = (x + grid_x, y + grid_y, width, height)
 
-        # apply offset
+        # apply offsets
         geometry = tuple(sum(x) for x in zip(geometry, args.offset))
+        geometry = tuple(sum(x) for x in zip(geometry, self.frame_offset))
 
         if args.debug:
             print('Compute new target geometry')
@@ -421,8 +439,9 @@ if target.get_window_type() != Wnck.WindowType.NORMAL:
         print('Window type is not Wnck.WindowType.NORMAL, terminating...')
     sys.exit(0)
 
-window = GridLock(target, *args.grid)
-window.show_all()
+gridlock = GridLock(target, *args.grid)
+gridlock.frame_offset = get_gtk_frame_offset(target.get_xid())
+gridlock.show_all()
 Gtk.main()
 
 now = GdkX11.x11_get_server_time(
