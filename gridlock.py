@@ -62,12 +62,12 @@ class Rect():
         x2 = max(self.x1, self.x2)
         y2 = max(self.y1, self.y2)
 
-        return (
+        return map(int, (
             x1 * scale_x,
             y1 * scale_y,
             (1 + x2 - x1) * scale_x,
             (1 + y2 - y1) * scale_y,
-            )
+            ))
 
 
 class GridLock(Gtk.Window):
@@ -129,8 +129,8 @@ class GridLock(Gtk.Window):
 
     def set_target_geometry_from_cursor(self):
         allocation = self.grid.get_allocation()
-        cell_width = allocation.width // self.cols
-        cell_height = allocation.height // self.rows
+        cell_width = allocation.width / self.cols
+        cell_height = allocation.height / self.rows
 
         (x, y, width, height) = self.cursor_rect.to_cairo(cell_width, cell_height)
         (grid_x, grid_y, grid_width, grid_height) = self.wnck_window.get_geometry()
@@ -189,8 +189,8 @@ class GridLock(Gtk.Window):
 
     def on_draw_cursor(self, cursor, ctx):
         allocation = self.grid.get_allocation()
-        cell_width = allocation.width // self.cols
-        cell_height = allocation.height // self.rows
+        cell_width = allocation.width / self.cols
+        cell_height = allocation.height / self.rows
 
         if self.cursor_rect:
             ctx.set_source_rgba(*args.hi_color)
@@ -252,8 +252,8 @@ class GridLock(Gtk.Window):
 
     def on_mouse_move(self, widget, event):
         allocation = self.grid.get_allocation()
-        cell_width = allocation.width // self.cols
-        cell_height = allocation.height // self.rows
+        cell_width = allocation.width / self.cols
+        cell_height = allocation.height / self.rows
 
         if self.drag:
             self.cursor_rect.x2 = int(event.x / cell_width)
