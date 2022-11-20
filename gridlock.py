@@ -37,7 +37,8 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Wnck', '3.0')
 from gi.repository import Gtk, Gdk, GdkX11, Wnck
 import cairo
-from Xlib import X, Xatom, display
+import Xlib.display
+from copy import copy
 
 progname = 'gridlock'
 version = '0.2.99'
@@ -47,7 +48,7 @@ def get_gtk_frame_offset(xid):
     # Gdk and Wnck hide away _GTK_FRAME_EXTENTS, Gdk.property_get is broken,
     # so use native Xlib to get this:
     #
-    x11_display = display.Display()
+    x11_display = Xlib.display.Display()
     x11_window = x11_display.create_resource_object('window', target.get_xid())
     atom_gtk_frame_extents = x11_display.intern_atom('_GTK_FRAME_EXTENTS')
     prop = x11_window.get_full_property(atom_gtk_frame_extents, 0)
@@ -73,6 +74,15 @@ class Rect():
             and self.x2 is not None \
             and self.y2 is not None
 
+    def __copy__(self):
+        return type(self)(self.x1, self.y1, self.x2, self.y2)
+
+    def __eq__(self, other):
+        if isinstance(other, type(self)):
+            return (self.x1, self.y1, self.x2, self.y2) \
+                == (other.x1, other.y1, other.x2, other.y2)
+        return NotImplemented
+
     def to_cairo(self, scale_x=1, scale_y=1):
         x1 = min(self.x1, self.x2)
         y1 = min(self.y1, self.y2)
@@ -89,12 +99,11 @@ class Rect():
 
 class GridLock(Gtk.Window):
 
-    def __init__(self, target, cols=16, rows=10):
+    def __init__(self, target):
         super().__init__(title='Gridlock')
 
         self.target = target
-        self.cols = cols
-        self.rows = rows
+        (self.cols, self.rows) = args.grid
         self.drag = False
         self.wnck_window = None
         self.cursor_rect = Rect()
@@ -110,6 +119,17 @@ class GridLock(Gtk.Window):
             self.maximize()
             self.set_decorated(False)
             self.set_keep_above(True)
+
+        self.target_orig_geometry = tuple(self.target.get_geometry())
+        self.target_orig_maximized_vert = self.target.is_maximized_vertically()
+        self.target_orig_maximized_horiz = self.target.is_maximized_horizontally()
+        self.target_orig_maximized = self.target.is_maximized()
+        if args.debug:
+            print('Original window geometry:')
+            print(f'  geometry = {self.target_orig_geometry}')
+            print(f'  maximized_vert = {self.target_orig_maximized_vert}')
+            print(f'  maximized_horiz = {self.target_orig_maximized_horiz}')
+            print(f'  maximized = {self.target_orig_maximized}')
 
         screen = self.get_screen()
         visual = screen.get_rgba_visual()
@@ -145,6 +165,9 @@ class GridLock(Gtk.Window):
         self.add(overlay)
 
     def set_target_geometry_from_cursor(self):
+        if self.target.is_maximized():
+            self.target.unmaximize()
+
         allocation = self.grid.get_allocation()
         cell_width = allocation.width / self.cols
         cell_height = allocation.height / self.rows
@@ -157,7 +180,8 @@ class GridLock(Gtk.Window):
 
         # apply offsets
         geometry = tuple(sum(x) for x in zip(geometry, args.offset))
-        geometry = tuple(sum(x) for x in zip(geometry, self.frame_offset))
+        frame_offset = get_gtk_frame_offset(self.target.get_xid())
+        geometry = tuple(sum(x) for x in zip(geometry, frame_offset))
 
         if args.debug:
             print('Compute new target geometry')
@@ -169,6 +193,8 @@ class GridLock(Gtk.Window):
         self.set_raw_target_geometry(*geometry)
 
     def set_raw_target_geometry(self, x, y, width, height):
+        if args.debug:
+            print(f'Calling Wnck.Window.set_geometry() with {(x, y, width, height)}')
         self.target.set_geometry(
             args.gravity,
             Wnck.WindowMoveResizeMask.X
@@ -246,18 +272,23 @@ class GridLock(Gtk.Window):
         if event.keyval == Gdk.KEY_q or event.keyval == Gdk.KEY_Escape:
             if args.debug:
                 print(f'Move-resize aborted by key press event {event.keyval}')
+            if args.live_preview:
+                self.restore_target_geometry()
             Gtk.main_quit()
             return True
 
     def on_mouse_press(self, widget, event):
         if event.button == 1:
             self.drag = True
+            self.last_cursor_rect = copy(self.cursor_rect)
             if args.debug:
                 print(f'Dragging mode started')
             return True
         else:
             if args.debug:
                 print(f'Move-resize aborted by mouse press event {event.button}')
+            if args.live_preview:
+                self.restore_target_geometry()
             Gtk.main_quit()
             return True
 
@@ -276,11 +307,28 @@ class GridLock(Gtk.Window):
         if self.drag:
             self.cursor_rect.x2 = int(event.x / cell_width)
             self.cursor_rect.y2 = int(event.y / cell_height)
+            if args.live_preview:
+                if args.hide_cursor:
+                    self.cursor.set_visible(False)
+                if self.last_cursor_rect != self.cursor_rect:
+                    if args.debug:
+                        print('Live preview redraw triggered')
+                    self.last_cursor_rect = copy(self.cursor_rect)
+                    self.set_target_geometry_from_cursor()
         else:
             self.cursor_rect.x1 = self.cursor_rect.x2 = int(event.x / cell_width)
             self.cursor_rect.y1 = self.cursor_rect.y2 = int(event.y / cell_height)
 
         self.cursor.queue_draw()
+
+    def restore_target_geometry(self):
+        self.set_raw_target_geometry(*self.target_orig_geometry)
+        if self.target_orig_maximized_vert:
+            self.target.maximize_vertically()
+        if self.target_orig_maximized_horiz:
+            self.target.maximize_horizontally()
+        if self.target_orig_maximized:
+            self.target.maximize()
 
 
 def parse_color_spec(arg_string):
@@ -323,6 +371,15 @@ arg_parser.add_argument('-w', '--window-gravity', '--gravity',
     help='specify gravity for window geometry changes: "current", "northwest"'
         ' or "static", default is "current"',
     )
+arg_parser.add_argument('-p', '--live-preview',
+    dest='live_preview', action='store_true',
+    help='show a live preview of the window while resizing, may cause trouble'
+        ' if the X11 client does not respond well to rapid geometry changes'
+    )
+arg_parser.add_argument('-H', '--hide-cursor',
+    dest='hide_cursor', action='store_true',
+    help='hide the cursor rectangle in live preview mode'
+    )
 arg_parser.add_argument('-f', '--fullscreen',
     dest='fullscreen', action='store_true',
     help='use fullscreen mode instead of a maximized undecorated window',
@@ -361,9 +418,10 @@ args = arg_parser.parse_args()
 
 screen = Wnck.Screen.get_default()
 screen.force_update()
+active_window = screen.get_active_window()
 
 if args.window_id is None:
-    target = screen.get_active_window()
+    target = active_window
     if target is None:
         raise RuntimeError('Could not determine active window')
 else:
@@ -428,7 +486,6 @@ else:
 
 if args.debug:
     print(f'Target window is 0x{target.get_xid():x}')
-    print(f'  geometry = {tuple(target.get_geometry())}')
     print(f'  name = "{target.get_name()}"')
     print(f'  class group = "{target.get_class_group_name()}"')
     print(f'  type = "{target.get_window_type()}"')
@@ -439,16 +496,16 @@ if target.get_window_type() != Wnck.WindowType.NORMAL:
         print('Window type is not Wnck.WindowType.NORMAL, terminating...')
     sys.exit(0)
 
-gridlock = GridLock(target, *args.grid)
-gridlock.frame_offset = get_gtk_frame_offset(target.get_xid())
+gridlock = GridLock(target)
 gridlock.show_all()
 Gtk.main()
 
-now = GdkX11.x11_get_server_time(
-    GdkX11.X11Window.lookup_for_display(
-        Gdk.Display.get_default(),
-        GdkX11.x11_get_default_root_xwindow()
+if active_window is not None:
+    now = GdkX11.x11_get_server_time(
+        GdkX11.X11Window.lookup_for_display(
+            Gdk.Display.get_default(),
+            GdkX11.x11_get_default_root_xwindow()
+            )
         )
-    )
-target.activate(now)
+    active_window.activate(now)
 
