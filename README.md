@@ -12,7 +12,7 @@ grid. If your window manager does not allow to bind gridlock to your choice of
 hotkey or mouse button, you may want to take a look at
 [xbindkeys(1)](https://www.nongnu.org/xbindkeys/).
 
-![Gridlock Screenshot](screenshot.png?raw=true)
+![Gridlock Screenshot](demo.gif?raw=true)
 
 TODO:
 - [X] Put this on github
