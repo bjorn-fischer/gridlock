@@ -20,7 +20,8 @@ TODO:
 - [X] Allow custom grid rows/columns
 - [X] Allow custom colors and opacity
 - [X] More compatibility with sidebars and reserved spaces
-- [ ] Live preview of resized window?
+- [X] Live preview of resized window
+- [ ] Dump Wnck and use bare Xlib, or EWMH?
 - [ ] Daemon mode to get rid of `xbindkeys`?
 - [ ] More eye candy?
 - [ ] Fallback mode if no compositor?
@@ -28,11 +29,27 @@ TODO:
 ## Requirements
 
 Gridlock is implemented in Python 3 and uses the introspection based APIs of
-GTK+ 3, GDK, Cairo and Wnck. Tested with:
+GTK+ 3, GDK, Cairo and Wnck, and the native Xlib binding. Tested with:
 - Python 3.10.8
 - Gtk-3.24.34
 - Cairo-1.16.0
 - libwnck-43.0
+- xlib-0.31
+
+## How to use
+
+Gridlock needs to be started via hotkey or alternative mouse button. If your
+window manager does not let you define custom hot key or mouse button actions
+you can use xbindkeys:
+```
+#
+# ~/.xbindkeysrc
+#
+
+# start gridlock on mouse button 9
+"/path/to/gridlock.py -p -g 16,10 -w static -t 3"
+        b:9
+```
 
 ## Motivation
 
