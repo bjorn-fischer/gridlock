@@ -36,6 +36,21 @@ GTK+ 3, GDK, Cairo and Wnck, and the native Xlib binding. Tested with:
 - libwnck-43.0
 - xlib-0.31
 
+## How to use
+
+Gridlock needs to be started via hotkey or alternative mouse button. If your
+window manager does not let you define custom hot key or mouse button actions
+you can use xbindkeys:
+```
+#
+# ~/.xbindkeysrc
+#
+
+# start gridlock on mouse button 9
+"/path/to/gridlock.py -p -g 16,10 -w static -t 3"
+        b:9
+```
+
 ## Motivation
 
 After trying countless stacking, tiling and compositing window managers
